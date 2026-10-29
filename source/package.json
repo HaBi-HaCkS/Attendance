@@ -1,0 +1,16 @@
+{
+  "name": "paisapulse-attendance",
+  "version": "1.0.0",
+  "description": "PaisaPulse attendance: face + location check-in PWA (Firebase)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/lib.test.mjs"
+  },
+  "dependencies": {
+    "@vladmandic/face-api": "^1.7.15",
+    "esbuild": "^0.28.2",
+    "firebase": "^13.1.0"
+  }
+}

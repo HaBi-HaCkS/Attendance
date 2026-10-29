@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isActive() { return hasProfile() && myDoc().data.status == 'active'; }
+    function isAdmin() { return isActive() && myDoc().data.role == 'admin'; }
+
+    // Today's date in India time (UTC+05:30), like 2026-10-29
+    function two(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function istNow() { return request.time + duration.value(330, 'm'); }
+    function istToday() { return string(istNow().year()) + '-' + two(istNow().month()) + '-' + two(istNow().day()); }
+
+    // Branch settings: everyone signed in can read, only admins change.
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // People. Anyone can register themselves as a pending staff member.
+    // Only admins can approve, assign a branch, make admins or switch people off.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'staff'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.faceStatus == 'none'
+        && request.resource.data.keys().hasOnly(['name', 'phone', 'role', 'status', 'branch', 'faceStatus', 'created']);
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && resource.data.faceStatus == 'none'
+            && request.resource.data.faceStatus == 'enrolled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['faceDesc', 'facePhoto', 'faceStatus', 'faceAt', 'consent']));
+      allow delete: if isAdmin();
+    }
+
+    // Attendance: one document per person per day, id = date_uid.
+    match /attendance/{recId} {
+      allow read: if isAdmin() || (isActive() && resource.data.uid == request.auth.uid);
+      allow create: if isAdmin()
+        || (isActive()
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.date == istToday()
+            && recId == request.resource.data.date + '_' + request.auth.uid
+            && request.resource.data['in']['ts'] == request.time
+            && request.resource.data.out == null
+            && request.resource.data.keys().hasOnly(['date', 'uid', 'name', 'branch', 'in', 'out', 'src']));
+      allow update: if isAdmin()
+        || (isActive()
+            && resource.data.uid == request.auth.uid
+            && resource.data.out == null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['out'])
+            && request.resource.data['out']['ts'] == request.time);
+      allow delete: if isAdmin();
+    }
+  }
+}
